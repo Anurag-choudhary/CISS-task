@@ -1,0 +1,50 @@
+[
+  {
+    "trackingId": "44b2042c-a964-4cba-a4a2-87d5283fbf02",
+    "timestamp": "2025-05-04T08:31:12.163Z",
+    "type": "sent",
+    "recipientEmail": "anurag.choudhary2091@gmail.com",
+    "messageId": "<27b7b2cc-0369-1d3b-4167-f89de5c24aa4@gmail.com>"
+  },
+  {
+    "trackingId": "44b2042c-a964-4cba-a4a2-87d5283fbf02",
+    "timestamp": "2025-05-04T08:31:49.401Z",
+    "type": "open",
+    "ip": "::1",
+    "referer": "unknown",
+    "location": {},
+    "device": {
+      "browser": "Chrome 135.0.0.0",
+      "os": "macOS 10.15.7",
+      "model": "Macintosh",
+      "type": "unknown"
+    }
+  },
+  {
+    "trackingId": "d6a11ea1-3aa9-404e-9d81-165e4990a5e2",
+    "timestamp": "2025-05-04T08:49:19.902Z",
+    "type": "sent",
+    "recipientEmail": "anurag.choudhary2091@gmail.com",
+    "messageId": "<c0234f13-aaff-d0e4-a7b0-98647b1b6ee8@gmail.com>"
+  },
+  {
+    "trackingId": "d6a11ea1-3aa9-404e-9d81-165e4990a5e2",
+    "timestamp": "2025-05-04T08:49:45.120Z",
+    "type": "open",
+    "ip": "::1",
+    "referer": "unknown",
+    "location": {
+      "country": "unknown",
+      "region": "",
+      "city": "",
+      "latitude": null,
+      "longitude": null
+    },
+    "device": {
+      "browser": "Chrome 135.0.0.0",
+      "os": "macOS 10.15.7",
+      "model": "Macintosh",
+      "type": "unknown"
+    }
+  }
+]

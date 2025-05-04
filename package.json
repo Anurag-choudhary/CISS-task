@@ -1,10 +1,13 @@
 {
   "dependencies": {
+    "@superfaceai/one-sdk": "^2.5.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "fs": "^0.0.1-security",
     "geoip-lite": "^1.4.10",
     "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.0",
+    "path": "^0.12.7",
     "ua-parser-js": "^2.0.3",
     "uuid": "^11.1.0"
   },

@@ -5,14 +5,17 @@ const geoip = require('geoip-lite');
 const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
 const UAParser = require('ua-parser-js');
+const { SuperfaceClient } = require('@superfaceai/one-sdk');
 require('dotenv').config();
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 const logFile = path.join(__dirname, 'tracking-log.json');
-const trackingData = {}; // In-memory (can use DB for persistence)
+const trackingData = {}; // In-memory cache
 
-// Configure transporter
+const sdk = new SuperfaceClient();
+
+// 📮 Email transporter config
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -21,12 +24,11 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Utility: Log tracking event to JSON file
+// 📘 Logging utility
 function logTrackingEvent(trackingId, event) {
   const timestamp = new Date().toISOString();
   const logEntry = { trackingId, timestamp, ...event };
 
-  // Write to file
   fs.readFile(logFile, (err, data) => {
     let logs = [];
     if (!err && data.length > 0) {
@@ -39,24 +41,50 @@ function logTrackingEvent(trackingId, event) {
     });
   });
 
-  // Optional in-memory usage
   if (!trackingData[trackingId]) trackingData[trackingId] = [];
   trackingData[trackingId].push(logEntry);
 }
 
-// Endpoint: Serve tracking pixel
+// 📍 IP Geolocation fallback using Superface
+async function getGeoFromSuperface(ip) {
+  try {
+    const profile = await sdk.getProfile('address/ip-geolocation');
+    const result = await profile.getUseCase('IpGeolocation').perform(
+      { ipAddress: ip },
+      {
+        provider: 'ipdata' // you can change to 'ipgeolocation', 'ipwhois', etc.
+      }
+    );
+
+    if (result.isOk()) {
+      const data = result.unwrap();
+      return {
+        country: data.country || 'unknown',
+        region: data.region || '',
+        city: data.city || '',
+        latitude: data.latitude || null,
+        longitude: data.longitude || null
+      };
+    } else {
+      console.warn('Superface IP lookup failed:', result.error);
+      return null;
+    }
+  } catch (err) {
+    console.error('Superface error:', err.message);
+    return null;
+  }
+}
+
+// 📌 Serve pixel endpoint
 app.get('/pixel/:id.png', async (req, res) => {
   const trackingId = req.params.id;
 
-  // Extract IP
   let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   if (ip.includes(',')) ip = ip.split(',')[0].trim();
 
-  // Extract headers
   const userAgent = req.headers['user-agent'] || 'unknown';
   const referer = req.headers['referer'] || 'unknown';
 
-  // Device info
   const ua = new UAParser(userAgent);
   const browser = ua.getBrowser();
   const device = ua.getDevice();
@@ -65,41 +93,21 @@ app.get('/pixel/:id.png', async (req, res) => {
   // Primary: geoip-lite
   let geo = geoip.lookup(ip);
   let location = {
-    country: 'unknown',
-    region: 'unknown',
-    city: 'unknown',
-    latitude: null,
-    longitude: null
+    country: geo?.country || 'unknown',
+    region: geo?.region || '',
+    city: geo?.city || '',
+    latitude: geo?.ll?.[0] || null,
+    longitude: geo?.ll?.[1] || null
   };
 
-  if (geo) {
-    location = {
-      country: geo.country,
-      region: geo.region,
-      city: geo.city,
-      latitude: geo.ll?.[0],
-      longitude: geo.ll?.[1]
-    };
-  } else {
-    // Fallback: ipapi.co
-    try {
-      const response = await fetch(`https://ipapi.co/${ip}/json/`);
-      if (response.ok) {
-        const data = await response.json();
-        location = {
-          country: data.country_name,
-          region: data.region,
-          city: data.city,
-          latitude: data.latitude,
-          longitude: data.longitude
-        };
-      }
-    } catch (err) {
-      console.warn('ipapi.co fallback failed:', err.message);
+  // Fallback if city or region is missing
+  if (!location.region || !location.city) {
+    const superfaceLocation = await getGeoFromSuperface(ip);
+    if (superfaceLocation) {
+      location = { ...location, ...superfaceLocation };
     }
   }
 
-  // Compile tracking data
   const trackingInfo = {
     type: 'open',
     ip,
@@ -115,11 +123,7 @@ app.get('/pixel/:id.png', async (req, res) => {
 
   logTrackingEvent(trackingId, trackingInfo);
 
-  // Send transparent pixel
-  const pixel = Buffer.from(
-    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-    'base64'
-  );
+  const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
   res.writeHead(200, {
     'Content-Type': 'image/gif',
     'Content-Length': pixel.length,
@@ -130,7 +134,7 @@ app.get('/pixel/:id.png', async (req, res) => {
   res.end(pixel);
 });
 
-// 📬 Endpoint: Send email with tracking pixel
+// ✉️ Send email with pixel
 app.get('/send-email', async (req, res) => {
   const { to, subject, text } = req.query;
   if (!to) return res.status(400).json({ error: 'Recipient email is required' });
@@ -168,7 +172,7 @@ app.get('/send-email', async (req, res) => {
   }
 });
 
-// 📄 Route: Get all tracking logs
+// 📂 Retrieve tracking logs
 app.get('/tracking-logs', (req, res) => {
   fs.readFile(logFile, 'utf8', (err, data) => {
     if (err) {
@@ -186,5 +190,5 @@ app.get('/tracking-logs', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🚀 Email tracker running at http://localhost:${port}`);
+  console.log(`🚀 Email tracker with Superface running at http://localhost:${port}`);
 });
