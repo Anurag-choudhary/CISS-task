@@ -13,7 +13,7 @@ const port = process.env.PORT || 3000;
 const logFile = path.join(__dirname, 'tracking-log.json');
 const trackingData = {}; // In-memory cache
 
-// 📮 Email transporter config
+// Email transporter config
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -47,7 +47,7 @@ function logTrackingEvent(trackingId, event) {
   trackingData[trackingId].push(logEntry);
 }
 
-// 📍 Enhanced IP Geolocation
+// Enhanced IP Geolocation
 async function getGeolocation(ip) {
   // Skip geolocation for known proxy IPs
   if (isProxyIP(ip)) {
@@ -158,7 +158,7 @@ function ipToLong(ip) {
           parseInt(parts[3], 10)) >>> 0;
 }
 
-// 📌 Serve pixel endpoint
+// Serve pixel endpoint
 app.get('/pixel/:id.png', async (req, res) => {
   const trackingId = req.params.id;
 
@@ -204,7 +204,7 @@ app.get('/pixel/:id.png', async (req, res) => {
   res.end(pixel);
 });
 
-// 📋 Link tracking endpoint
+// Link tracking endpoint
 app.get('/click/:id', async (req, res) => {
   const trackingId = req.params.id;
   const redirectUrl = req.query.url || '/';
@@ -243,7 +243,7 @@ app.get('/click/:id', async (req, res) => {
   res.redirect(redirectUrl);
 });
 
-// ✉️ Send email with pixel and link tracking
+// Send email with pixel and link tracking
 app.get('/send-email', async (req, res) => {
   const { to, subject, text, redirect } = req.query;
   if (!to) return res.status(400).json({ error: 'Recipient email is required' });
@@ -311,7 +311,7 @@ app.get('/send-email', async (req, res) => {
   }
 });
 
-// 📊 Get tracking results for a specific ID
+// Get tracking results for a specific ID
 app.get('/tracking/:id', (req, res) => {
   const trackingId = req.params.id;
   
@@ -343,7 +343,7 @@ app.get('/tracking/:id', (req, res) => {
   });
 });
 
-// 📂 Retrieve all tracking logs
+// Retrieve all tracking logs
 app.get('/tracking-logs', (req, res) => {
   fs.readFile(logFile, 'utf8', (err, data) => {
     if (err) {
@@ -362,5 +362,5 @@ app.get('/tracking-logs', (req, res) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`🚀 Enhanced email tracker running at http://localhost:${port}`);
+  console.log(`Enhanced email tracker running at http://localhost:${port}`);
 });
