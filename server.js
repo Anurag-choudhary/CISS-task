@@ -5,15 +5,13 @@ const geoip = require('geoip-lite');
 const nodemailer = require('nodemailer');
 const { v4: uuidv4 } = require('uuid');
 const UAParser = require('ua-parser-js');
-const { SuperfaceClient } = require('@superfaceai/one-sdk');
+const axios = require('axios'); // Added for API requests
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 const logFile = path.join(__dirname, 'tracking-log.json');
 const trackingData = {}; // In-memory cache
-
-const sdk = new SuperfaceClient();
 
 // 📮 Email transporter config
 const transporter = nodemailer.createTransport({
@@ -23,6 +21,10 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASS,
   }
 });
+
+// Configure your preferred geolocation API
+const IPINFO_TOKEN = process.env.IPINFO_TOKEN; // Get token from https://ipinfo.io
+const IP_API_ENABLED = true; // Free alternative without token needed
 
 // 📘 Logging utility
 function logTrackingEvent(trackingId, event) {
@@ -45,34 +47,77 @@ function logTrackingEvent(trackingId, event) {
   trackingData[trackingId].push(logEntry);
 }
 
-// 📍 IP Geolocation fallback using Superface
-async function getGeoFromSuperface(ip) {
-  try {
-    const profile = await sdk.getProfile('address/ip-geolocation');
-    const result = await profile.getUseCase('IpGeolocation').perform(
-      { ipAddress: ip },
-      {
-        provider: 'ipdata' // you can change to 'ipgeolocation', 'ipwhois', etc.
-      }
-    );
-
-    if (result.isOk()) {
-      const data = result.unwrap();
-      return {
-        country: data.country || 'unknown',
-        region: data.region || '',
-        city: data.city || '',
-        latitude: data.latitude || null,
-        longitude: data.longitude || null
-      };
-    } else {
-      console.warn('Superface IP lookup failed:', result.error);
-      return null;
-    }
-  } catch (err) {
-    console.error('Superface error:', err.message);
-    return null;
+// 📍 Enhanced IP Geolocation
+async function getGeolocation(ip) {
+  // Skip geolocation for localhost/private IPs
+  if (ip === '::1' || ip === 'localhost' || ip === '127.0.0.1') {
+    return {
+      country: 'localhost',
+      region: 'local',
+      city: 'local',
+      latitude: null,
+      longitude: null
+    };
   }
+
+  // First try ipinfo.io (more accurate)
+  try {
+    if (IPINFO_TOKEN) {
+      const response = await axios.get(`https://ipinfo.io/${ip}?token=${IPINFO_TOKEN}`);
+      if (response.data) {
+        // If location data contains coordinates in "lat,lng" format
+        const coords = response.data.loc ? response.data.loc.split(',') : [null, null];
+        return {
+          country: response.data.country || 'unknown',
+          region: response.data.region || '',
+          city: response.data.city || '',
+          latitude: coords[0] ? parseFloat(coords[0]) : null,
+          longitude: coords[1] ? parseFloat(coords[1]) : null
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('ipinfo.io lookup failed:', error.message);
+  }
+
+  // Second try ip-api.com (free alternative)
+  if (IP_API_ENABLED) {
+    try {
+      const response = await axios.get(`http://ip-api.com/json/${ip}`);
+      if (response.data && response.data.status === 'success') {
+        return {
+          country: response.data.countryCode || 'unknown',
+          region: response.data.regionName || '',
+          city: response.data.city || '',
+          latitude: response.data.lat || null,
+          longitude: response.data.lon || null
+        };
+      }
+    } catch (error) {
+      console.warn('ip-api.com lookup failed:', error.message);
+    }
+  }
+
+  // Fallback to geoip-lite (least accurate)
+  const geo = geoip.lookup(ip);
+  if (geo) {
+    return {
+      country: geo.country || 'unknown',
+      region: geo.region || '',
+      city: geo.city || '',
+      latitude: geo.ll?.[0] || null,
+      longitude: geo.ll?.[1] || null
+    };
+  }
+
+  // Default empty response if all methods fail
+  return {
+    country: 'unknown',
+    region: '',
+    city: '',
+    latitude: null,
+    longitude: null
+  };
 }
 
 // 📌 Serve pixel endpoint
@@ -90,23 +135,8 @@ app.get('/pixel/:id.png', async (req, res) => {
   const device = ua.getDevice();
   const os = ua.getOS();
 
-  // Primary: geoip-lite
-  let geo = geoip.lookup(ip);
-  let location = {
-    country: geo?.country || 'unknown',
-    region: geo?.region || '',
-    city: geo?.city || '',
-    latitude: geo?.ll?.[0] || null,
-    longitude: geo?.ll?.[1] || null
-  };
-
-  // Fallback if city or region is missing
-  if (!location.region || !location.city) {
-    const superfaceLocation = await getGeoFromSuperface(ip);
-    if (superfaceLocation) {
-      location = { ...location, ...superfaceLocation };
-    }
-  }
+  // Get geolocation with improved reliability
+  const location = await getGeolocation(ip);
 
   const trackingInfo = {
     type: 'open',
@@ -123,6 +153,7 @@ app.get('/pixel/:id.png', async (req, res) => {
 
   logTrackingEvent(trackingId, trackingInfo);
 
+  // Return a 1x1 transparent GIF
   const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
   res.writeHead(200, {
     'Content-Type': 'image/gif',
@@ -189,6 +220,20 @@ app.get('/tracking-logs', (req, res) => {
   });
 });
 
+// 📊 Dashboard endpoint
+app.get('/dashboard', (req, res) => {
+  fs.readFile(path.join(__dirname, 'public', 'dashboard.html'), 'utf8', (err, data) => {
+    if (err) {
+      return res.status(500).send('Dashboard not available');
+    }
+    res.send(data);
+  });
+});
+
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
+
 app.listen(port, () => {
-  console.log(`🚀 Email tracker with Superface running at http://localhost:${port}`);
+  console.log(`🚀 Enhanced email tracker running at http://localhost:${port}`);
+  console.log(`📊 Dashboard available at http://localhost:${port}/dashboard`);
 });
