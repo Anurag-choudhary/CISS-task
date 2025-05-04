@@ -12,7 +12,7 @@ const port = 3000;
 const logFile = path.join(__dirname, 'tracking-log.json');
 const trackingData = {}; // In-memory (can use DB for persistence)
 
-// ✉️ Configure transporter
+// Configure transporter
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -21,7 +21,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// 📦 Utility: Log tracking event to JSON file
+// Utility: Log tracking event to JSON file
 function logTrackingEvent(trackingId, event) {
   const timestamp = new Date().toISOString();
   const logEntry = { trackingId, timestamp, ...event };
@@ -44,30 +44,67 @@ function logTrackingEvent(trackingId, event) {
   trackingData[trackingId].push(logEntry);
 }
 
-// 🎯 Endpoint: Serve tracking pixel
-app.get('/pixel/:id.png', (req, res) => {
+// Endpoint: Serve tracking pixel
+app.get('/pixel/:id.png', async (req, res) => {
   const trackingId = req.params.id;
-  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+  // Extract IP
+  let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
+  if (ip.includes(',')) ip = ip.split(',')[0].trim();
+
+  // Extract headers
   const userAgent = req.headers['user-agent'] || 'unknown';
   const referer = req.headers['referer'] || 'unknown';
 
+  // Device info
   const ua = new UAParser(userAgent);
   const browser = ua.getBrowser();
   const device = ua.getDevice();
   const os = ua.getOS();
-  const geo = geoip.lookup(ip) || {};
 
+  // Primary: geoip-lite
+  let geo = geoip.lookup(ip);
+  let location = {
+    country: 'unknown',
+    region: 'unknown',
+    city: 'unknown',
+    latitude: null,
+    longitude: null
+  };
+
+  if (geo) {
+    location = {
+      country: geo.country,
+      region: geo.region,
+      city: geo.city,
+      latitude: geo.ll?.[0],
+      longitude: geo.ll?.[1]
+    };
+  } else {
+    // Fallback: ipapi.co
+    try {
+      const response = await fetch(`https://ipapi.co/${ip}/json/`);
+      if (response.ok) {
+        const data = await response.json();
+        location = {
+          country: data.country_name,
+          region: data.region,
+          city: data.city,
+          latitude: data.latitude,
+          longitude: data.longitude
+        };
+      }
+    } catch (err) {
+      console.warn('ipapi.co fallback failed:', err.message);
+    }
+  }
+
+  // Compile tracking data
   const trackingInfo = {
     type: 'open',
     ip,
     referer,
-    location: {
-      country: geo.country || 'unknown',
-      region: geo.region || 'unknown',
-      city: geo.city || 'unknown',
-      latitude: geo.ll?.[0] || null,
-      longitude: geo.ll?.[1] || null
-    },
+    location,
     device: {
       browser: `${browser.name || 'unknown'} ${browser.version || ''}`,
       os: `${os.name || 'unknown'} ${os.version || ''}`,
@@ -78,7 +115,7 @@ app.get('/pixel/:id.png', (req, res) => {
 
   logTrackingEvent(trackingId, trackingInfo);
 
-  // Serve 1x1 transparent GIF
+  // Send transparent pixel
   const pixel = Buffer.from(
     'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
     'base64'
