@@ -158,17 +158,15 @@ function ipToLong(ip) {
           parseInt(parts[3], 10)) >>> 0;
 }
 
-// 📌 Serve pixel endpoint with forward tracking
+// 📌 Serve pixel endpoint
 app.get('/pixel/:id.png', async (req, res) => {
   const trackingId = req.params.id;
-  const originalRecipient = req.query.original_recipient || null;
 
   let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   if (ip.includes(',')) ip = ip.split(',')[0].trim();
 
   const userAgent = req.headers['user-agent'] || 'unknown';
   const referer = req.headers['referer'] || 'unknown';
-  const emailClient = detectEmailClient(userAgent, referer);
 
   const ua = new UAParser(userAgent);
   const browser = ua.getBrowser();
@@ -177,9 +175,6 @@ app.get('/pixel/:id.png', async (req, res) => {
 
   // Get geolocation with improved reliability
   const location = await getGeolocation(ip);
-
-  // Check if this is likely a forwarded email
-  const isForwarded = Boolean(originalRecipient);
 
   const trackingInfo = {
     type: 'open',
@@ -192,10 +187,7 @@ app.get('/pixel/:id.png', async (req, res) => {
       model: device.model || 'unknown',
       type: device.type || 'unknown'
     },
-    isProxyDetected: isProxyIP(ip),
-    emailClient,
-    isForwarded,
-    originalRecipient
+    isProxyDetected: isProxyIP(ip)
   };
 
   logTrackingEvent(trackingId, trackingInfo);
@@ -211,24 +203,6 @@ app.get('/pixel/:id.png', async (req, res) => {
   });
   res.end(pixel);
 });
-
-// Detect email client from user agent and referer
-function detectEmailClient(userAgent, referer) {
-  const ua = userAgent.toLowerCase();
-  const ref = referer ? referer.toLowerCase() : '';
-  
-  if (ua.includes('googlebot') || ref.includes('mail.google.com')) {
-    return 'Gmail';
-  } else if (ua.includes('outlook') || ref.includes('outlook.live.com')) {
-    return 'Outlook';
-  } else if (ua.includes('yahoo') || ref.includes('mail.yahoo.com')) {
-    return 'Yahoo Mail';
-  } else if (ua.includes('apple') || ua.includes('iphone') || ua.includes('ipad') || ua.includes('macintosh')) {
-    return 'Apple Mail';
-  } else {
-    return 'Unknown';
-  }
-}
 
 // 📋 Link tracking endpoint
 app.get('/click/:id', async (req, res) => {
@@ -282,19 +256,14 @@ app.get('/send-email', async (req, res) => {
     const trackingPixelUrl = `${domain}/pixel/${trackingId}.png`;
     const trackingLinkUrl = `${domain}/click/${trackingId}?url=${encodeURIComponent(redirect || 'https://example.com')}`;
     
-    // Forward tracking - this allows tracking when emails are forwarded
-    const forwardTrackingParam = `?original_recipient=${encodeURIComponent(to)}`;
-    const uniquePixelUrl = `${trackingPixelUrl}${forwardTrackingParam}&v=${Date.now()}`;
-    
-    // Add a forward tracking link that captures the new recipient's email
-    const forwardFormUrl = `${domain}/report-forward/${trackingId}`;
+    // Add unique identifiers to URLs to prevent caching
+    const uniquePixelUrl = `${trackingPixelUrl}?v=${Date.now()}`;
 
-    // Add hidden input field in email
     const html = `
       <div>
         <p>${text || 'This is a tracked email.'}</p>
         
-        <!-- Tracking pixel with forwarding parameter -->
+        <!-- Tracking pixel -->
         <img src="${uniquePixelUrl}" width="1" height="1" alt="" style="display:none;" />
         
         <!-- Hidden backup tracking -->
@@ -306,23 +275,6 @@ app.get('/send-email', async (req, res) => {
         <p>
           <a href="${trackingLinkUrl}">Click here for more information</a>
         </p>
-        
-        <!-- Forward identification -->
-        <p style="font-size:13px;margin-top:20px;">
-          If you found this email useful, please 
-          <a href="mailto:?subject=${encodeURIComponent('Fw: ' + (subject || 'Tracked Email'))}&body=${encodeURIComponent(
-            'Forwarded message:\n\n' + 
-            (text || 'This is a tracked email.') + 
-            '\n\nClick here to view more: ' + trackingLinkUrl +
-            '\n\nReport this forward: ' + forwardFormUrl
-          )}">forward it to a colleague</a>
-        </p>
-        
-        <!-- Hidden forward tracking form -->
-        <div style="font-size:10px;color:#999999;margin-top:30px;">
-          Was this email forwarded to you? 
-          <a href="${forwardFormUrl}">Let us know who shared it with you</a>.
-        </div>
         
         <!-- User-friendly footer -->
         <p style="font-size:11px;color:#999999;">
@@ -336,8 +288,7 @@ app.get('/send-email', async (req, res) => {
       to,
       subject: subject || 'Tracked Email',
       text: text || 'Open this email to trigger tracking.' + 
-            '\n\nClick here for more information: ' + trackingLinkUrl +
-            '\n\nWas this forwarded to you? Let us know: ' + forwardFormUrl,
+            '\n\nClick here for more information: ' + trackingLinkUrl,
       html
     });
 
@@ -345,15 +296,14 @@ app.get('/send-email', async (req, res) => {
       type: 'sent',
       recipientEmail: to,
       subject,
-      messageId: info.messageId,
-      originalRecipient: to
+      messageId: info.messageId
     });
 
     res.json({ 
       success: true, 
       trackingId, 
       messageId: info.messageId,
-      note: "Email sent with forward tracking capability"
+      note: "Email sent with both pixel and link tracking"
     });
   } catch (err) {
     console.error('Send error:', err);
@@ -410,109 +360,7 @@ app.get('/tracking-logs', (req, res) => {
   });
 });
 
-// Express middleware for parsing request bodies
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// 📮 Forward reporting endpoint (API)
-app.post('/api/report-forward', (req, res) => {
-  const { trackingId, forwardedTo, forwardedFrom } = req.body;
-  
-  if (!trackingId || !forwardedTo) {
-    return res.status(400).json({ error: 'Missing required parameters' });
-  }
-  
-  logTrackingEvent(trackingId, {
-    type: 'forward-report',
-    forwardedTo,
-    forwardedFrom,
-    method: 'api',
-    timestamp: new Date().toISOString()
-  });
-  
-  res.json({ success: true, message: 'Forward reported successfully' });
-});
-
-// 📨 Forward reporting page (user-friendly)
-app.get('/report-forward/:id', (req, res) => {
-  const trackingId = req.params.id;
-  
-  // Send a simple HTML form
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Email Forward Report</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; background: #f9f9f9; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #2c5282; font-size: 24px; margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; }
-        input[type="email"], input[type="text"] { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        button { background: #4299e1; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:hover { background: #3182ce; }
-        .success { background: #c6f6d5; border: 1px solid #68d391; padding: 15px; border-radius: 4px; margin-top: 20px; display: none; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>Email Forward Information</h1>
-        <p>This email was forwarded to you. Please let us know your email address to help us improve our communications.</p>
-        
-        <form id="forwardForm">
-          <input type="hidden" name="trackingId" value="${trackingId}">
-          
-          <label for="forwardedTo">Your Email Address:</label>
-          <input type="email" id="forwardedTo" name="forwardedTo" required placeholder="your@email.com">
-          
-          <label for="forwardedFrom">Who Forwarded This Email To You? (Optional)</label>
-          <input type="text" id="forwardedFrom" name="forwardedFrom" placeholder="Their name or email">
-          
-          <button type="submit">Submit</button>
-        </form>
-        
-        <div class="success" id="successMessage">
-          Thank you for your submission!
-        </div>
-      </div>
-      
-      <script>
-        document.getElementById('forwardForm').addEventListener('submit', function(e) {
-          e.preventDefault();
-          
-          const formData = {
-            trackingId: document.querySelector('input[name="trackingId"]').value,
-            forwardedTo: document.querySelector('input[name="forwardedTo"]').value,
-            forwardedFrom: document.querySelector('input[name="forwardedFrom"]').value
-          };
-          
-          fetch('/api/report-forward', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-          })
-          .then(response => response.json())
-          .then(data => {
-            if (data.success) {
-              document.getElementById('forwardForm').style.display = 'none';
-              document.getElementById('successMessage').style.display = 'block';
-            }
-          })
-          .catch(error => {
-            console.error('Error:', error);
-            alert('There was an error submitting your information.');
-          });
-        });
-      </script>
-    </body>
-    </html>
-  `);
-});
-
 // Start the server
 app.listen(port, () => {
-  console.log(`🚀 Enhanced email tracker with forward detection running at http://localhost:${port}`);
+  console.log(`🚀 Enhanced email tracker running at http://localhost:${port}`);
 });
