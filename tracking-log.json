@@ -5,5 +5,25 @@
     "type": "sent",
     "recipientEmail": "anurag.choudhary2091@gmail.com",
     "messageId": "<6416da4d-f6cf-5aa3-6835-e0b8dacbafb5@gmail.com>"
+  },
+  {
+    "trackingId": "2fa7805d-f408-4751-affe-fcd1075c8910",
+    "timestamp": "2025-05-04T07:41:07.822Z",
+    "type": "open",
+    "ip": "::1",
+    "referer": "unknown",
+    "location": {
+      "country": "unknown",
+      "region": "unknown",
+      "city": "unknown",
+      "latitude": null,
+      "longitude": null
+    },
+    "device": {
+      "browser": "Chrome 135.0.0.0",
+      "os": "macOS 10.15.7",
+      "model": "Macintosh",
+      "type": "unknown"
+    }
   }
 ]

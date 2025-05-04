@@ -131,6 +131,23 @@ app.get('/send-email', async (req, res) => {
   }
 });
 
+// 📄 Route: Get all tracking logs
+app.get('/tracking-logs', (req, res) => {
+  fs.readFile(logFile, 'utf8', (err, data) => {
+    if (err) {
+      console.error('Error reading log file:', err);
+      return res.status(500).json({ error: 'Unable to read log file' });
+    }
+
+    try {
+      const logs = JSON.parse(data);
+      res.json({ success: true, logs });
+    } catch (parseError) {
+      res.status(500).json({ error: 'Error parsing logs' });
+    }
+  });
+});
+
 app.listen(port, () => {
   console.log(`🚀 Email tracker running at http://localhost:${port}`);
 });
